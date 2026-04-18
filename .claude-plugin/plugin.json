@@ -1,0 +1,24 @@
+{
+  "name": "rationale",
+  "version": "0.3.0",
+  "description": "git blame for AI-generated code — repo-local decision log with MCP server, EU AI Act JSON-LD export, staleness detector, and cross-agent query CLI",
+  "author": {
+    "name": "Shivam Rawat",
+    "email": "shivarawat24@gmail.com"
+  },
+  "homepage": "https://github.com/shivam2407/rationale",
+  "repository": "https://github.com/shivam2407/rationale",
+  "license": "MIT",
+  "keywords": [
+    "ai",
+    "claude",
+    "decision-log",
+    "adr",
+    "provenance",
+    "agentic",
+    "mcp",
+    "audit",
+    "eu-ai-act"
+  ],
+  "commands": ["./commands/"]
+}

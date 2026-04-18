@@ -53,6 +53,27 @@ pip install -e .
 
 Requires Python 3.10+.
 
+### Install as a Claude Code plugin
+
+If you use Claude Code, install rationale as a plugin and the Stop hook,
+MCP server, and slash commands are wired up for you:
+
+```bash
+# Inside Claude Code
+/plugin marketplace add shivam2407/rationale
+/plugin install rationale@rationale
+```
+
+You still need `pip install rationale` so the CLI is on `PATH`, but after
+that the plugin provides:
+
+- `/why`, `/rationale-check`, `/rationale-summary`, `/rationale-graph`,
+  `/rationale-export` slash commands
+- `hooks/hooks.json` — the Stop hook that captures each session
+- `.mcp.json` — registers the `rationale` MCP server so `rationale_why`
+  / `rationale_list` / `rationale_check` / `rationale_summary` are
+  callable by agents during the session
+
 ## Quickstart
 
 ```bash

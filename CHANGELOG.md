@@ -4,6 +4,27 @@ All notable changes to Rationale are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Claude Code plugin packaging.** The repo is now directly installable
+  as a Claude Code plugin: `.claude-plugin/plugin.json`,
+  `.claude-plugin/marketplace.json`, `.mcp.json`, `hooks/hooks.json`,
+  and five slash commands under `commands/`. After
+  `pip install rationale` (so the CLI is on `PATH`), users can run
+  `/plugin marketplace add shivam2407/rationale` and
+  `/plugin install rationale@rationale` inside Claude Code to get the
+  Stop hook + MCP server + `/why`, `/rationale-check`,
+  `/rationale-summary`, `/rationale-graph`, and `/rationale-export`
+  wired up for them.
+- Plugin manifest test suite (`tests/test_plugin_manifests.py`) that
+  pins the validator rules: plugin.json must not declare `hooks`,
+  version fields across `plugin.json` / `marketplace.json` / the Python
+  package must match, slash-command files must carry a
+  `description:` frontmatter entry, and the Stop hook must pass
+  `--quiet`.
+
 ## [0.3.0] — 2026-04-18
 
 The v2 milestone described in

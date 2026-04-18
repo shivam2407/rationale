@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rationale": {
+      "command": "rationale",
+      "args": ["mcp"]
+    }
+  }
+}

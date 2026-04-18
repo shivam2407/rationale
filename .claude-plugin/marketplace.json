@@ -1,0 +1,44 @@
+{
+  "name": "rationale",
+  "owner": {
+    "name": "Shivam Rawat",
+    "email": "shivarawat24@gmail.com"
+  },
+  "metadata": {
+    "description": "Code-anchored decision log for AI-generated code — one plugin, shared across every coding agent via MCP."
+  },
+  "plugins": [
+    {
+      "name": "rationale",
+      "source": "./",
+      "description": "git blame for AI decisions: capture why agents chose what they chose, anchor it to code, and expose it to future sessions via an MCP server. Includes a staleness detector, decision graph, confidence-weighted rollups, and an EU AI Act JSON-LD export with HMAC / Ed25519 signing.",
+      "version": "0.3.0",
+      "author": {
+        "name": "Shivam Rawat",
+        "email": "shivarawat24@gmail.com"
+      },
+      "homepage": "https://github.com/shivam2407/rationale",
+      "repository": "https://github.com/shivam2407/rationale",
+      "license": "MIT",
+      "keywords": [
+        "ai",
+        "claude",
+        "decision-log",
+        "adr",
+        "provenance",
+        "mcp",
+        "audit",
+        "eu-ai-act"
+      ],
+      "category": "workflow",
+      "tags": [
+        "decision-log",
+        "provenance",
+        "mcp",
+        "audit",
+        "stop-hook"
+      ],
+      "strict": false
+    }
+  ]
+}
