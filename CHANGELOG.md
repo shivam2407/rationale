@@ -4,9 +4,49 @@ All notable changes to Rationale are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-04-18
+
+The v2 milestone described in
+[`rationale-architecture.md`](rationale-architecture.md) (lines 143-147).
+
+### Added
+
+- **Decision graph** (`rationale graph`). Surfaces two edge kinds:
+  `SUPERSEDES` when a newer decision picks a different option on the
+  same symbol (the closest thing to "this was walked back") and
+  `RELATED` when decisions share a symbol or overlap line ranges.
+  Edge direction for SUPERSEDES is always newer → older.
+- **Confidence-weighted rollups** (`rationale summary`). Aggregates
+  decisions by file, agent, and tag, weighted by confidence
+  (high=1.0, medium=0.6, low=0.25). Intended for tech leads who need
+  to see where deliberation is concentrated without reading every
+  individual decision.
+- **EU AI Act JSON-LD export** (`rationale export`). Produces a
+  standalone JSON-LD document with a stable `@context` URL, generator
+  metadata, and the complete decision record. Optional HMAC-SHA256
+  signing via `--sign` (requires `RATIONALE_SIGNING_KEY`); optional
+  Ed25519 signing via `--sign --ed25519` behind the new `[crypto]`
+  extra. Signatures are computed over canonical JSON (sorted keys,
+  compact separators) so verification is reproducible.
+- **Cross-agent MCP server** (`rationale mcp`). Exposes
+  `rationale_why`, `rationale_list`, `rationale_check`, and
+  `rationale_summary` as Model Context Protocol tools so any MCP-aware
+  coding agent (Claude Desktop, Cursor, etc.) can query the decision
+  log without re-ingesting the repo. Implements a narrow JSON-RPC 2.0
+  subset that is compatible with MCP clients; the full `mcp` SDK is
+  optional via the `[mcp]` extra.
+- New `[crypto]` and `[mcp]` extras so the core install stays tiny.
+
+### Notes
+
+- The architecture spec also lists "team sync server" under v2. Since
+  team sync inherently requires a network service and a deployment
+  story, it is tracked as a post-0.3 effort rather than shipped in
+  this release.
+
 ## [0.2.0] — 2026-04-17
 
-First public release. This is the v1 milestone described in
+First public release. The v1 milestone described in
 [`rationale-architecture.md`](rationale-architecture.md).
 
 ### Added

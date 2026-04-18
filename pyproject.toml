@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rationale"
-version = "0.2.0"
+version = "0.3.0"
 description = "git blame for AI-generated code — code-anchored, repo-local decision log"
 readme = "README.md"
 license = {text = "MIT"}
@@ -51,12 +51,23 @@ llm = [
     # distillation. Offline/heuristic mode works without it.
     "anthropic>=0.40.0",
 ]
+crypto = [
+    # Enables Ed25519 signing of EU AI Act JSON-LD exports.
+    "cryptography>=42.0",
+]
+mcp = [
+    # Enables the full Model Context Protocol SDK. Without it, the
+    # `rationale mcp` command still speaks a compatible JSON-RPC subset
+    # over stdio.
+    "mcp>=1.0",
+]
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
     "build>=1.2",
     "twine>=5.0",
     "anthropic>=0.40.0",
+    "cryptography>=42.0",
 ]
 
 [project.scripts]

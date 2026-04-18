@@ -241,3 +241,133 @@ def test_check_json_output(
         entry = parsed[0]
         assert "status" in entry
         assert "anchors" in entry
+
+
+def test_summary_empty_store(runner: CliRunner, tmp_path: Path) -> None:
+    runner.invoke(main, ["init", "--path", str(tmp_path)])
+    result = runner.invoke(main, ["summary", "--path", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "no decisions captured" in result.output.lower()
+
+
+def test_summary_json_output(
+    runner: CliRunner,
+    tmp_path: Path,
+    transcript_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RATIONALE_OFFLINE", "1")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    runner.invoke(
+        main,
+        [
+            "capture",
+            "--path",
+            str(tmp_path),
+            "--transcript",
+            str(transcript_file),
+        ],
+    )
+    result = runner.invoke(
+        main, ["summary", "--json", "--path", str(tmp_path)]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert "total" in parsed
+    assert "by_file" in parsed
+    assert "by_agent" in parsed
+    assert "by_tag" in parsed
+    assert parsed["total"] >= 1
+
+
+def test_graph_empty_store_reports_no_relationships(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    runner.invoke(main, ["init", "--path", str(tmp_path)])
+    result = runner.invoke(main, ["graph", "--path", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "0 decision" in result.output.lower() or "no relationships" in result.output.lower()
+
+
+def test_graph_json_output(
+    runner: CliRunner,
+    tmp_path: Path,
+    transcript_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RATIONALE_OFFLINE", "1")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    runner.invoke(
+        main,
+        [
+            "capture",
+            "--path",
+            str(tmp_path),
+            "--transcript",
+            str(transcript_file),
+        ],
+    )
+    result = runner.invoke(
+        main, ["graph", "--json", "--path", str(tmp_path)]
+    )
+    assert result.exit_code == 0
+    parsed = json.loads(result.output)
+    assert "nodes" in parsed
+    assert "edges" in parsed
+
+
+def test_export_writes_jsonld(
+    runner: CliRunner,
+    tmp_path: Path,
+    transcript_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RATIONALE_OFFLINE", "1")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    runner.invoke(
+        main,
+        [
+            "capture",
+            "--path",
+            str(tmp_path),
+            "--transcript",
+            str(transcript_file),
+        ],
+    )
+    target = tmp_path / "out.jsonld"
+    result = runner.invoke(
+        main,
+        ["export", "--path", str(tmp_path), "--output", str(target)],
+    )
+    assert result.exit_code == 0
+    assert target.exists()
+    parsed = json.loads(target.read_text(encoding="utf-8"))
+    assert parsed["@type"] == "DecisionLog"
+    assert "proof" not in parsed  # unsigned by default
+
+
+def test_export_signed_requires_signing_key(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    # Fresh env — signing must fail loudly rather than emit a fake proof.
+    import os
+
+    saved = os.environ.pop("RATIONALE_SIGNING_KEY", None)
+    try:
+        runner.invoke(main, ["init", "--path", str(tmp_path)])
+        result = runner.invoke(
+            main,
+            [
+                "export",
+                "--path",
+                str(tmp_path),
+                "--output",
+                str(tmp_path / "o.jsonld"),
+                "--sign",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "RATIONALE_SIGNING_KEY" in result.output or "signing" in result.output.lower()
+    finally:
+        if saved is not None:
+            os.environ["RATIONALE_SIGNING_KEY"] = saved

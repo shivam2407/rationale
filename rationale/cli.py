@@ -14,7 +14,16 @@ import click
 from rationale import __version__
 from rationale.capture import current_git_sha, parse_transcript
 from rationale.distiller import Distiller
+from rationale.export import write_export
+from rationale.graph import EdgeKind, build_graph
 from rationale.query import QueryHit, query
+from rationale.rollup import (
+    Rollup,
+    by_agent,
+    by_file,
+    by_tag,
+    overall_summary,
+)
 from rationale.staleness import (
     DecisionStaleness,
     Status,
@@ -163,6 +172,171 @@ def check_cmd(path: str | None, as_json: bool, show_all: bool) -> None:
 
     if any(s.status in {Status.STALE, Status.MISSING} for s in summaries):
         sys.exit(1)
+
+
+@main.command(
+    "summary",
+    help="Confidence-weighted rollups across files, agents, and tags.",
+)
+@click.option("--path", default=None, help="Repo root (defaults to cwd).")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit machine-readable JSON instead of human output.",
+)
+@click.option(
+    "--top", default=10, type=int, help="Limit to the top N entries per group."
+)
+def summary_cmd(path: str | None, as_json: bool, top: int) -> None:
+    store = _store(path)
+    decisions = store.all()
+    overall = overall_summary(decisions)
+    files = by_file(decisions)[:top]
+    agents = by_agent(decisions)[:top]
+    tags = by_tag(decisions)[:top]
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "total": overall.total,
+                    "weighted_score": round(overall.weighted_score, 4),
+                    "by_confidence": overall.by_confidence,
+                    "by_file": [_rollup_dict(r) for r in files],
+                    "by_agent": [_rollup_dict(r) for r in agents],
+                    "by_tag": [_rollup_dict(r) for r in tags],
+                },
+                indent=2,
+            )
+        )
+        return
+
+    if overall.total == 0:
+        click.echo("no decisions captured yet")
+        return
+    click.echo(
+        f"total: {overall.total}   "
+        f"weighted: {overall.weighted_score:.2f}   "
+        f"by confidence: {overall.by_confidence}"
+    )
+    _print_rollup("by file", files)
+    _print_rollup("by agent", agents)
+    _print_rollup("by tag", tags)
+
+
+@main.command(
+    "graph",
+    help=(
+        "Print the decision relationship graph: SUPERSEDES edges (newer "
+        "decisions that walked back an older one) and RELATED edges "
+        "(overlapping anchors or shared symbols)."
+    ),
+)
+@click.option("--path", default=None, help="Repo root (defaults to cwd).")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit machine-readable JSON instead of human output.",
+)
+def graph_cmd(path: str | None, as_json: bool) -> None:
+    store = _store(path)
+    decisions = store.all()
+    g = build_graph(decisions)
+
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "nodes": [
+                        {"id": n.id, "chosen": n.chosen, "timestamp": n.timestamp}
+                        for n in g.nodes
+                    ],
+                    "edges": [
+                        {
+                            "source": e.source,
+                            "target": e.target,
+                            "kind": e.kind.value,
+                            "reason": e.reason,
+                        }
+                        for e in g.edges
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return
+
+    if not g.edges:
+        click.echo(f"{len(g.nodes)} decision(s); no relationships yet")
+        return
+    click.echo(f"{len(g.nodes)} decision(s), {len(g.edges)} edge(s)")
+    for e in g.edges:
+        arrow = "->" if e.kind == EdgeKind.SUPERSEDES else "<->"
+        click.echo(f"  {e.source} {arrow} {e.target}  [{e.kind.value}]  {e.reason}")
+
+
+@main.command(
+    "export",
+    help=(
+        "Export the decision log as JSON-LD for EU AI Act provenance "
+        "disclosure. Use --sign to attach an HMAC-SHA256 proof "
+        "(requires RATIONALE_SIGNING_KEY in the environment)."
+    ),
+)
+@click.option("--path", default=None, help="Repo root (defaults to cwd).")
+@click.option(
+    "--output",
+    "-o",
+    default=None,
+    help="Output file path. Defaults to <repo>/.rationale/export.jsonld.",
+)
+@click.option(
+    "--sign",
+    is_flag=True,
+    help=(
+        "Attach an HMAC-SHA256 proof. Requires RATIONALE_SIGNING_KEY "
+        "env var. Use --ed25519 for asymmetric Ed25519 instead."
+    ),
+)
+@click.option(
+    "--ed25519",
+    is_flag=True,
+    help=(
+        "Use Ed25519 instead of HMAC for signing. Requires the [crypto] "
+        "extra and a PEM-encoded private key at RATIONALE_SIGNING_KEY."
+    ),
+)
+def export_cmd(
+    path: str | None, output: str | None, sign: bool, ed25519: bool
+) -> None:
+    store = _store(path)
+    target = Path(output) if output else store.base_dir / "export.jsonld"
+    try:
+        written = write_export(
+            store.all(), target, sign=sign, ed25519=ed25519
+        )
+    except RuntimeError as exc:
+        click.echo(f"rationale: export failed: {exc}", err=True)
+        sys.exit(1)
+    click.echo(f"wrote {written}")
+
+
+@main.command(
+    "mcp",
+    help=(
+        "Run as an MCP server over stdio — exposes rationale_why / "
+        "rationale_list / rationale_check / rationale_summary tools to "
+        "MCP-aware agents."
+    ),
+)
+@click.option("--path", default=None, help="Repo root (defaults to cwd).")
+def mcp_cmd(path: str | None) -> None:
+    from rationale.mcp_server import serve_stdio
+
+    root = Path(path) if path else Path.cwd()
+    serve_stdio(root)
 
 
 @main.command(
@@ -316,6 +490,26 @@ def _hit_to_dict(h: QueryHit) -> dict:
         "git_sha": h.decision.git_sha,
         "reasoning": h.decision.reasoning,
     }
+
+
+def _rollup_dict(r: Rollup) -> dict:
+    return {
+        "key": r.key,
+        "count": r.count,
+        "weight": round(r.weight, 4),
+        "sample_ids": list(r.sample_ids),
+    }
+
+
+def _print_rollup(title: str, rollups: list[Rollup]) -> None:
+    if not rollups:
+        return
+    click.echo(f"\n{title}:")
+    for r in rollups:
+        samples = ", ".join(r.sample_ids)
+        click.echo(
+            f"  {r.weight:5.2f}  {r.count:3d}  {r.key}  [{samples}]"
+        )
 
 
 def _staleness_to_dict(s: DecisionStaleness) -> dict:

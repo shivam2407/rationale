@@ -214,12 +214,60 @@ This is your repo's permanent record. It is `git`-tracked, plain text, grep-able
 | `rationale why "<term>"` | Text search across decision bodies. |
 | `rationale list` | All decisions, newest first. |
 | `rationale check` | Report stale decisions vs. the current working tree. Exits 1 when any decision is STALE or MISSING — suitable for CI. |
+| `rationale summary` | Confidence-weighted rollup across files, agents, and tags. |
+| `rationale graph` | Print the decision relationship graph (`SUPERSEDES`, `RELATED`). |
+| `rationale export` | Write an EU AI Act JSON-LD export of the decision log. `--sign` attaches an HMAC-SHA256 proof (requires `RATIONALE_SIGNING_KEY`). |
+| `rationale mcp` | Run as an MCP server over stdio so any MCP-aware agent can call `rationale_why`, `rationale_list`, `rationale_check`, `rationale_summary`. |
 | `rationale install-hook` | Print the Claude Code Stop-hook config. |
 
 A short `why` shim is also installed so you can type `why src/x.py:42` directly.
 
 Add `--json` to `why` or `check` for machine-readable output (great for
 editor integrations).
+
+## Exposing decisions to other agents (MCP)
+
+```bash
+# Run in your repo. Point any MCP-aware client (Claude Desktop, Cursor,
+# agent frameworks) at this command.
+rationale mcp
+```
+
+The server speaks a JSON-RPC 2.0 subset of the Model Context Protocol
+over stdio and exposes four tools: `rationale_why`, `rationale_list`,
+`rationale_check`, `rationale_summary`. An agent can ask "why is this
+retry set to 3?" without re-ingesting the repo.
+
+Install the optional `[mcp]` extra if you want to plug into the full
+MCP Python SDK:
+
+```bash
+pip install "rationale[mcp]"
+```
+
+## EU AI Act provenance export
+
+The EU AI Act (August 2026) requires operators of high-risk AI systems
+to document the reasoning behind AI-generated artifacts. `rationale`
+ships a JSON-LD export with a stable `@context` URL and optional
+cryptographic proof:
+
+```bash
+# Unsigned export — useful for internal audits
+rationale export
+
+# HMAC-SHA256 signature (stdlib only)
+export RATIONALE_SIGNING_KEY='a-long-random-string'
+rationale export --sign --output audit.jsonld
+
+# Ed25519 asymmetric signing for external auditors
+pip install "rationale[crypto]"
+export RATIONALE_SIGNING_KEY=/path/to/private.pem
+rationale export --sign --ed25519 --output audit.jsonld
+```
+
+Signatures cover canonical JSON (sorted keys, compact separators) so
+verification is reproducible.
 
 ## Surviving refactors
 
@@ -256,9 +304,9 @@ In offline mode, Rationale produces a low-confidence decision per edited file, d
 ## Roadmap
 
 - **v0** — Claude Code hook, Haiku distiller, line-range anchors, `why` CLI.
-- **v1 (this release)** — Symbolic anchors (Python `ast` + regex for JS/TS/Go/Rust), content-hash staleness detector, `rationale check` with CI exit code, richer JSON output.
-- **v1.x** — Tree-sitter backend for broader language coverage, VS Code CodeLens extension, Cursor extension.
-- **v2** — Cross-agent MCP server, EU AI Act compliance export, decision graph, team sync.
+- **v1** — Symbolic anchors (Python `ast` + regex for JS/TS/Go/Rust), content-hash staleness detector, `rationale check` with CI exit code.
+- **v2 (this release)** — Cross-agent MCP server, EU AI Act JSON-LD export with HMAC/Ed25519 signing, decision graph (`SUPERSEDES`/`RELATED`), confidence-weighted rollups.
+- **post-v2** — Tree-sitter backend for broader language coverage, VS Code CodeLens extension, Cursor extension, team sync server, semantic contradiction detection via embeddings.
 
 See [`rationale-architecture.md`](rationale-architecture.md) for the full design and [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
