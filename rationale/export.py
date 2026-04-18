@@ -172,8 +172,15 @@ def _ed25519_sign(doc: dict[str, Any]) -> str:
     Expects the env var ``RATIONALE_SIGNING_KEY`` to be a file path to
     a PEM-encoded Ed25519 private key. The public key is not embedded
     in the proof; the verifier supplies it out of band.
+
+    Raises :class:`RuntimeError` when the key is not an Ed25519 private
+    key — a silent success with an RSA/EC key would contradict the
+    ``Ed25519Signature2020`` type written into the proof block.
     """
     try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+            Ed25519PrivateKey,
+        )
         from cryptography.hazmat.primitives.serialization import (
             load_pem_private_key,
         )
@@ -191,5 +198,11 @@ def _ed25519_sign(doc: dict[str, Any]) -> str:
         )
     with open(key_path, "rb") as f:
         private_key = load_pem_private_key(f.read(), password=None)
+    if not isinstance(private_key, Ed25519PrivateKey):
+        raise RuntimeError(
+            "RATIONALE_SIGNING_KEY must point to an Ed25519 PEM key; "
+            f"got {type(private_key).__name__}. Refusing to emit a proof "
+            "claiming Ed25519Signature2020 with a non-Ed25519 signature."
+        )
     signature = private_key.sign(_canonical_json(doc))
     return signature.hex()

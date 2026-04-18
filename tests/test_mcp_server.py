@@ -134,3 +134,121 @@ def test_tools_registry_matches_list_tools() -> None:
     registry_names = set(TOOLS)
     listed_names = {t["name"] for t in list_tools()}
     assert registry_names == listed_names
+
+
+# --- JSON-RPC transport tests ----------------------------------------------
+
+import io
+import json
+
+from rationale.mcp_server import _handle_request, serve_stdio
+
+
+def test_handle_request_initialize() -> None:
+    resp = _handle_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+        Path("."),
+    )
+    assert resp is not None
+    assert resp["id"] == 1
+    assert resp["result"]["serverInfo"]["name"] == "rationale"
+
+
+def test_handle_request_tools_list() -> None:
+    resp = _handle_request(
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        Path("."),
+    )
+    assert resp is not None
+    assert "tools" in resp["result"]
+    assert any(t["name"] == "rationale_why" for t in resp["result"]["tools"])
+
+
+def test_handle_request_unknown_method_returns_method_not_found() -> None:
+    resp = _handle_request(
+        {"jsonrpc": "2.0", "id": 3, "method": "bogus/method"},
+        Path("."),
+    )
+    assert resp is not None
+    assert resp["error"]["code"] == -32601
+
+
+def test_handle_request_tools_call_rejects_bad_tool(
+    populated_store: DecisionStore,
+) -> None:
+    resp = _handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {"name": "no_such_tool", "arguments": {}},
+        },
+        populated_store.root,
+    )
+    assert resp is not None
+    assert resp["error"]["code"] == -32602
+
+
+def test_handle_request_tools_call_happy_path(
+    populated_store: DecisionStore,
+) -> None:
+    resp = _handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "tools/call",
+            "params": {
+                "name": "rationale_why",
+                "arguments": {"term": "retry"},
+            },
+        },
+        populated_store.root,
+    )
+    assert resp is not None
+    assert "result" in resp
+    content = resp["result"]["content"][0]
+    assert content["type"] == "text"
+    payload = json.loads(content["text"])
+    assert payload[0]["id"] == "d-abc"
+
+
+def test_handle_request_notification_returns_none() -> None:
+    # A notification has no `id` and must not produce a response envelope.
+    resp = _handle_request(
+        {"jsonrpc": "2.0", "method": "some/notification"},
+        Path("."),
+    )
+    assert resp is None
+
+
+def test_handle_request_non_dict_returns_invalid_request() -> None:
+    resp = _handle_request("not a dict", Path("."))  # type: ignore[arg-type]
+    assert resp is not None
+    assert resp["error"]["code"] == -32600
+
+
+def test_serve_stdio_parse_error_for_malformed_json(tmp_path: Path) -> None:
+    stdin = io.StringIO("this is not json\n")
+    stdout = io.StringIO()
+    serve_stdio(tmp_path, stdin=stdin, stdout=stdout)
+    lines = [ln for ln in stdout.getvalue().splitlines() if ln.strip()]
+    assert len(lines) == 1
+    response = json.loads(lines[0])
+    assert response["error"]["code"] == -32700
+
+
+def test_serve_stdio_routes_tools_list(tmp_path: Path) -> None:
+    req = json.dumps({"jsonrpc": "2.0", "id": 7, "method": "tools/list"})
+    stdin = io.StringIO(req + "\n")
+    stdout = io.StringIO()
+    serve_stdio(tmp_path, stdin=stdin, stdout=stdout)
+    response = json.loads(stdout.getvalue().strip())
+    assert response["id"] == 7
+    assert "tools" in response["result"]
+
+
+def test_serve_stdio_skips_blank_lines(tmp_path: Path) -> None:
+    stdin = io.StringIO("\n\n\n")
+    stdout = io.StringIO()
+    serve_stdio(tmp_path, stdin=stdin, stdout=stdout)
+    assert stdout.getvalue() == ""

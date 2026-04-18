@@ -142,3 +142,98 @@ def test_write_export_signing_without_key_raises(tmp_path: Path) -> None:
     finally:
         if saved is not None:
             os.environ["RATIONALE_SIGNING_KEY"] = saved
+
+
+# --- Ed25519 signing tests --------------------------------------------------
+
+
+def _write_ed25519_key(tmp_path: Path) -> Path:
+    """Generate an Ed25519 private key on disk in PEM form."""
+    cryptography = pytest.importorskip("cryptography")  # noqa: F841
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    key = ed25519.Ed25519PrivateKey.generate()
+    pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    key_path = tmp_path / "signing.pem"
+    key_path.write_bytes(pem)
+    return key_path
+
+
+def test_ed25519_export_embeds_signature_of_expected_length(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key_path = _write_ed25519_key(tmp_path)
+    monkeypatch.setenv("RATIONALE_SIGNING_KEY", str(key_path))
+    out = tmp_path / "signed.jsonld"
+    write_export([_d()], out, sign=True, ed25519=True)
+
+    parsed = json.loads(out.read_text(encoding="utf-8"))
+    assert parsed["proof"]["type"] == "Ed25519Signature2020"
+    sig_hex = parsed["proof"]["signatureValue"]
+    # Ed25519 signatures are 64 bytes → 128 hex chars.
+    assert len(sig_hex) == 128
+
+
+def test_ed25519_export_verifies_with_public_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("cryptography")
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives import serialization
+
+    key_path = _write_ed25519_key(tmp_path)
+    pem_bytes = key_path.read_bytes()
+    private_key = serialization.load_pem_private_key(pem_bytes, password=None)
+    public_key = private_key.public_key()
+
+    monkeypatch.setenv("RATIONALE_SIGNING_KEY", str(key_path))
+    out = tmp_path / "signed.jsonld"
+    write_export([_d()], out, sign=True, ed25519=True)
+
+    parsed = json.loads(out.read_text(encoding="utf-8"))
+    sig = bytes.fromhex(parsed["proof"]["signatureValue"])
+    unsigned = {k: v for k, v in parsed.items() if k != "proof"}
+
+    from rationale.export import _canonical_json
+
+    payload = _canonical_json(unsigned)
+    public_key.verify(sig, payload)  # raises InvalidSignature if bad
+
+    # Tamper with the document → verification must fail
+    tampered = {**unsigned}
+    tampered["decisions"] = [{**unsigned["decisions"][0], "chosen": "HACKED"}]
+    with pytest.raises(InvalidSignature):
+        public_key.verify(sig, _canonical_json(tampered))
+
+
+def test_ed25519_refuses_non_ed25519_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: the sign path must detect RSA/EC keys and refuse to
+    emit a proof block that claims Ed25519Signature2020."""
+    pytest.importorskip("cryptography")
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = rsa_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    key_path = tmp_path / "rsa.pem"
+    key_path.write_bytes(pem)
+    monkeypatch.setenv("RATIONALE_SIGNING_KEY", str(key_path))
+
+    with pytest.raises(RuntimeError, match="Ed25519"):
+        write_export(
+            [_d()],
+            tmp_path / "should-not-exist.jsonld",
+            sign=True,
+            ed25519=True,
+        )

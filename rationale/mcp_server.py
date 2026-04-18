@@ -213,19 +213,31 @@ def dispatch_tool(
 # --- JSON-RPC stdio transport ----------------------------------------------
 
 
-def serve_stdio(repo_root: Path | str = ".") -> None:  # pragma: no cover - IO loop
+def serve_stdio(
+    repo_root: Path | str = ".",
+    *,
+    stdin: Any = None,
+    stdout: Any = None,
+) -> None:
     """Run a minimal MCP-compatible JSON-RPC server over stdio.
 
     Supports ``initialize``, ``tools/list``, and ``tools/call``. This is
     not a full MCP implementation — but it is enough for a Claude Desktop
     or MCP-aware agent to list and invoke rationale tools. The full SDK
     sits behind the ``[mcp]`` extra.
+
+    The ``stdin``/``stdout`` parameters exist so the transport loop can
+    be exercised by unit tests; in production they default to the
+    real process streams.
     """
     root = Path(repo_root)
-    for line in sys.stdin:
+    in_stream = stdin if stdin is not None else sys.stdin
+    out_stream = stdout if stdout is not None else sys.stdout
+    for line in in_stream:
         line = line.strip()
         if not line:
             continue
+        request: Any = None
         try:
             request = json.loads(line)
             response = _handle_request(request, root)
@@ -238,13 +250,21 @@ def serve_stdio(repo_root: Path | str = ".") -> None:  # pragma: no cover - IO l
                 f"Internal error: {exc}",
             )
         if response is not None:
-            sys.stdout.write(json.dumps(response) + "\n")
-            sys.stdout.flush()
+            out_stream.write(json.dumps(response) + "\n")
+            out_stream.flush()
 
 
 def _handle_request(
-    request: dict[str, Any], root: Path
-) -> dict[str, Any] | None:  # pragma: no cover - IO loop
+    request: Any, root: Path
+) -> dict[str, Any] | None:
+    """Produce a JSON-RPC response for a single request envelope.
+
+    Returns None for valid notifications (no id). Invalid envelopes
+    produce an error response. Separated from serve_stdio so the transport
+    loop is trivial and the business logic is directly testable.
+    """
+    if not isinstance(request, dict):
+        return _error_response(None, -32600, "Invalid Request")
     method = request.get("method")
     req_id = request.get("id")
     params = request.get("params") or {}
@@ -268,6 +288,8 @@ def _handle_request(
         }
 
     if method == "tools/call":
+        if not isinstance(params, dict):
+            return _error_response(req_id, -32602, "params must be an object")
         name = params.get("name")
         arguments = params.get("arguments", {})
         try:
@@ -290,9 +312,7 @@ def _handle_request(
     return _error_response(req_id, -32601, f"method not found: {method}")
 
 
-def _error_response(
-    req_id: Any, code: int, message: str
-) -> dict[str, Any]:  # pragma: no cover - IO loop
+def _error_response(req_id: Any, code: int, message: str) -> dict[str, Any]:
     return {
         "jsonrpc": "2.0",
         "id": req_id,

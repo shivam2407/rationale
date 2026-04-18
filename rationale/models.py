@@ -54,9 +54,13 @@ class DecisionAnchor:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class Decision:
-    """A captured agent decision: what was chosen, what was rejected, why."""
+    """A captured agent decision: what was chosen, what was rejected, why.
+
+    Frozen: once captured, the record is immutable. Callers must construct
+    a new :class:`Decision` rather than mutating an existing one.
+    """
 
     id: str
     timestamp: str
