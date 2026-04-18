@@ -6,13 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.3.1] — 2026-04-18
 
+### Changed
+
+- **Distribution renamed from `rationale` to `rationale-cli` on PyPI.**
+  The `rationale` project name was already owned by an unrelated
+  Portuguese fractions module. Install path is now
+  `pip install rationale-cli`; the Python import, CLI binary, MCP
+  server, and Claude Code plugin are all still named `rationale`.
+
 ### Added
 
 - **Claude Code plugin packaging.** The repo is now directly installable
   as a Claude Code plugin: `.claude-plugin/plugin.json`,
   `.claude-plugin/marketplace.json`, `.mcp.json`, `hooks/hooks.json`,
   and five slash commands under `commands/`. After
-  `pip install rationale` (so the CLI is on `PATH`), users can run
+  `pip install rationale-cli` (so the CLI is on `PATH`), users can run
   `/plugin marketplace add shivam2407/rationale` and
   `/plugin install rationale@rationale` inside Claude Code to get the
   Stop hook + MCP server + `/why`, `/rationale-check`,
@@ -23,7 +31,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   version fields across `plugin.json` / `marketplace.json` / the Python
   package must match, slash-command files must carry a `description:`
   frontmatter entry, each slash command must document the
-  `pip install rationale` prerequisite, the Stop hook must pass
+  `pip install rationale-cli` prerequisite, the Stop hook must pass
   `--quiet`, and the Stop hook command must degrade gracefully when
   the `rationale` CLI isn't on `PATH`.
 
@@ -31,7 +39,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The Stop hook now appends `|| true` to the capture command so a
   session end never fails visibly inside Claude Code just because the
-  user installed the plugin before running `pip install rationale`.
+  user installed the plugin before running `pip install rationale-cli`.
 
 ## [0.3.0] — 2026-04-18
 

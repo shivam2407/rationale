@@ -36,12 +36,17 @@ d-a3f9c1  fixed 3x retry  (exact-line)
 ## Install
 
 ```bash
-pip install rationale
+pip install rationale-cli
 
 # Optional: enable Haiku-based distillation (otherwise the heuristic
 # offline distiller runs and no API calls are made).
-pip install "rationale[llm]"
+pip install "rationale-cli[llm]"
 ```
+
+> The distribution on PyPI is `rationale-cli` because the `rationale`
+> name was already taken by an unrelated project. The Python module,
+> the CLI binary, the MCP server, and the Claude Code plugin all keep
+> the name `rationale`.
 
 Or from source:
 
@@ -64,7 +69,7 @@ MCP server, and slash commands are wired up for you:
 /plugin install rationale@rationale
 ```
 
-You still need `pip install rationale` so the CLI is on `PATH`, but after
+You still need `pip install rationale-cli` so the CLI is on `PATH`, but after
 that the plugin provides:
 
 - `/why`, `/rationale-check`, `/rationale-summary`, `/rationale-graph`,
@@ -263,7 +268,7 @@ Install the optional `[mcp]` extra if you want to plug into the full
 MCP Python SDK:
 
 ```bash
-pip install "rationale[mcp]"
+pip install "rationale-cli[mcp]"
 ```
 
 ## EU AI Act provenance export
@@ -282,7 +287,7 @@ export RATIONALE_SIGNING_KEY='a-long-random-string'
 rationale export --sign --output audit.jsonld
 
 # Ed25519 asymmetric signing for external auditors
-pip install "rationale[crypto]"
+pip install "rationale-cli[crypto]"
 export RATIONALE_SIGNING_KEY=/path/to/private.pem
 rationale export --sign --ed25519 --output audit.jsonld
 ```

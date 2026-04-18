@@ -24,4 +24,4 @@ rationale check "$ARGUMENTS"
 
 Pass `--json` for machine-readable output or `--all` to include FRESH/DRIFTED rows.
 
-Requires the `rationale` CLI (`pip install rationale`) to be on `PATH`.
+Requires the `rationale` CLI (`pip install rationale-cli`) to be on `PATH`.

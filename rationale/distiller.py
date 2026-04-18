@@ -56,7 +56,7 @@ class AnthropicClient:
             import anthropic
         except ImportError as exc:
             raise RuntimeError(
-                "anthropic SDK is not installed. Install `rationale[llm]` "
+                "anthropic SDK is not installed. Install `rationale-cli[llm]` "
                 "to enable LLM-based distillation, or set RATIONALE_OFFLINE=1."
             ) from exc
 

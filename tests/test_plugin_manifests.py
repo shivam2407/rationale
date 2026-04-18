@@ -210,8 +210,13 @@ def test_command_file_invokes_rationale_cli(path: Path) -> None:
 def test_command_file_documents_pip_prerequisite(path: Path) -> None:
     """Every slash command must tell the user the prerequisite if the
     CLI isn't on PATH yet. The hook silently `|| true`s; the slash
-    commands should explicitly say 'pip install rationale'."""
+    commands should explicitly say ``pip install rationale-cli``.
+
+    The distribution on PyPI is ``rationale-cli`` (the ``rationale``
+    name was already taken). The Python module, the CLI binary, and
+    the plugin are all still called ``rationale``.
+    """
     text = path.read_text(encoding="utf-8").lower()
-    assert "pip install rationale" in text, (
-        f"{path.name}: missing `pip install rationale` prerequisite note"
+    assert "pip install rationale-cli" in text, (
+        f"{path.name}: missing `pip install rationale-cli` prerequisite note"
     )

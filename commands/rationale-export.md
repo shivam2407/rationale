@@ -20,4 +20,4 @@ Signatures cover canonical JSON (sorted keys, compact separators) so verificatio
 rationale export "$ARGUMENTS"
 ```
 
-Requires the `rationale` CLI (`pip install rationale`) to be on `PATH`.
+Requires the `rationale` CLI (`pip install rationale-cli`) to be on `PATH`.

@@ -18,6 +18,6 @@ Query the repo-local `.rationale/` decision log to recover why a past agent sess
 rationale why "$ARGUMENTS"
 ```
 
-The `rationale` CLI must be on `PATH`. Install with `pip install rationale` if it isn't already.
+The `rationale` CLI must be on `PATH`. Install with `pip install rationale-cli` if it isn't already.
 
 Add `--json` for machine-readable output when another agent needs to parse the result.

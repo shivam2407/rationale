@@ -187,7 +187,7 @@ def _ed25519_sign(doc: dict[str, Any]) -> str:
     except ImportError as exc:  # pragma: no cover - optional extra
         raise RuntimeError(
             "Ed25519 signing requires the [crypto] extra: "
-            "pip install 'rationale[crypto]'."
+            "pip install 'rationale-cli[crypto]'."
         ) from exc
 
     key_path = os.environ.get(SIGNING_ENV_VAR)
