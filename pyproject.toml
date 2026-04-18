@@ -40,8 +40,8 @@ rationale = "rationale.cli:main"
 why = "rationale.cli:why_shortcut"
 
 [project.urls]
-Homepage = "https://github.com/shivamrawat/rationale"
-Issues = "https://github.com/shivamrawat/rationale/issues"
+Homepage = "https://github.com/shivam2407/rationale"
+Issues = "https://github.com/shivam2407/rationale/issues"
 
 [tool.setuptools.packages.find]
 include = ["rationale", "rationale.*"]

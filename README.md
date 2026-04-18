@@ -36,7 +36,7 @@ d-a3f9c1  fixed 3x retry  (exact-line)
 ## Install
 
 ```bash
-git clone https://github.com/shivamrawat/rationale.git
+git clone https://github.com/shivam2407/rationale.git
 cd rationale
 pip install -e .
 ```
