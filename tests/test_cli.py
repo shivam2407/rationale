@@ -176,3 +176,68 @@ def test_install_hook_prints_snippet(runner: CliRunner, tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "Stop" in result.output
     assert "rationale capture" in result.output
+
+
+def test_check_empty_store(runner: CliRunner, tmp_path: Path) -> None:
+    runner.invoke(main, ["init", "--path", str(tmp_path)])
+    result = runner.invoke(main, ["check", "--path", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "all decisions fresh" in result.output
+
+
+def test_check_flags_stale_with_exit_code(
+    runner: CliRunner,
+    tmp_path: Path,
+    transcript_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RATIONALE_OFFLINE", "1")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    runner.invoke(
+        main,
+        [
+            "capture",
+            "--path",
+            str(tmp_path),
+            "--transcript",
+            str(transcript_file),
+        ],
+    )
+
+    # Mutate the anchored file so its content_hash no longer matches
+    anchored = tmp_path / "src" / "payment.ts"
+    anchored.write_text("// completely different content\n", encoding="utf-8")
+
+    result = runner.invoke(main, ["check", "--path", str(tmp_path)])
+    # Exit 1 when staleness is detected — useful in CI
+    assert result.exit_code == 1
+    assert "stale" in result.output.lower() or "missing" in result.output.lower()
+
+
+def test_check_json_output(
+    runner: CliRunner,
+    tmp_path: Path,
+    transcript_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RATIONALE_OFFLINE", "1")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    runner.invoke(
+        main,
+        [
+            "capture",
+            "--path",
+            str(tmp_path),
+            "--transcript",
+            str(transcript_file),
+        ],
+    )
+    result = runner.invoke(
+        main, ["check", "--json", "--all", "--path", str(tmp_path)]
+    )
+    parsed = json.loads(result.output)
+    assert isinstance(parsed, list)
+    if parsed:
+        entry = parsed[0]
+        assert "status" in entry
+        assert "anchors" in entry

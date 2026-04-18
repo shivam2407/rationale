@@ -11,13 +11,19 @@ from typing import Any
 class DecisionAnchor:
     """Links a decision to a specific code location.
 
-    v0 uses line ranges. v1 will add AST node IDs (tree-sitter).
+    v1 adds `symbol` (a function/class path) and `content_hash` (SHA-256
+    fingerprint of the anchored lines at capture time). Together they let
+    the staleness detector (a) re-locate the anchor when lines drift and
+    (b) flag the decision when the code itself has changed. Both fields
+    are optional — existing v0 decisions without them keep working.
     """
 
     file: str
     line_start: int
     line_end: int
     ast_id: str | None = None
+    symbol: str | None = None
+    content_hash: str | None = None
 
     def contains(self, file: str, line: int) -> bool:
         return self.file == file and self.line_start <= line <= self.line_end
@@ -29,6 +35,10 @@ class DecisionAnchor:
         }
         if self.ast_id:
             d["ast_id"] = self.ast_id
+        if self.symbol:
+            d["symbol"] = self.symbol
+        if self.content_hash:
+            d["content_hash"] = self.content_hash
         return d
 
     @classmethod
@@ -39,6 +49,8 @@ class DecisionAnchor:
             line_start=int(lines[0]),
             line_end=int(lines[1]),
             ast_id=data.get("ast_id"),
+            symbol=data.get("symbol"),
+            content_hash=data.get("content_hash"),
         )
 
 

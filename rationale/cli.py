@@ -15,6 +15,11 @@ from rationale import __version__
 from rationale.capture import current_git_sha, parse_transcript
 from rationale.distiller import Distiller
 from rationale.query import QueryHit, query
+from rationale.staleness import (
+    DecisionStaleness,
+    Status,
+    check_decision,
+)
 from rationale.storage import DecisionStore
 
 
@@ -127,6 +132,40 @@ def list_cmd(path: str | None) -> None:
 
 
 @main.command(
+    "check",
+    help=(
+        "Check which decisions have gone stale relative to the current working "
+        "tree. Exits 1 if any decisions are STALE or MISSING (useful in CI)."
+    ),
+)
+@click.option("--path", default=None, help="Repo root (defaults to cwd).")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Emit machine-readable JSON instead of human output.",
+)
+@click.option(
+    "--all",
+    "show_all",
+    is_flag=True,
+    help="Also print FRESH/DRIFTED decisions (default: only problems).",
+)
+def check_cmd(path: str | None, as_json: bool, show_all: bool) -> None:
+    store = _store(path)
+    decisions = store.all()
+    summaries = [check_decision(d, repo_root=store.root) for d in decisions]
+
+    if as_json:
+        click.echo(json.dumps([_staleness_to_dict(s) for s in summaries], indent=2))
+    else:
+        _print_staleness_table(summaries, show_all=show_all)
+
+    if any(s.status in {Status.STALE, Status.MISSING} for s in summaries):
+        sys.exit(1)
+
+
+@main.command(
     "install-hook",
     help="Print (or copy) the Claude Code Stop hook configuration.",
 )
@@ -174,10 +213,6 @@ def install_hook_cmd(path: str | None, copy: bool, bare: bool) -> None:
 
 
 def build_hook_config(root: Path | None = None) -> dict:
-    # The `root` parameter is kept for forward compatibility but is
-    # intentionally unused: the generated command resolves project dir
-    # from the Stop-hook `cwd` field and CLAUDE_PROJECT_DIR at runtime.
-    del root
     """Return the Claude Code hook config shape for a Stop hook.
 
     Real Claude Code schema: each Stop entry has a `matcher` plus a nested
@@ -188,7 +223,12 @@ def build_hook_config(root: Path | None = None) -> dict:
     the current project's working directory, and `rationale capture`
     also consults the `cwd` field in the hook's stdin JSON. One global
     hook therefore serves every repo the user works in.
+
+    The `root` parameter is kept for forward compatibility but is
+    intentionally unused: the generated command resolves project dir
+    from the Stop-hook `cwd` field and CLAUDE_PROJECT_DIR at runtime.
     """
+    del root
     return {
         "hooks": {
             "Stop": [
@@ -278,6 +318,69 @@ def _hit_to_dict(h: QueryHit) -> dict:
     }
 
 
+def _staleness_to_dict(s: DecisionStaleness) -> dict:
+    return {
+        "id": s.decision.id,
+        "chosen": s.decision.chosen,
+        "status": s.status.value,
+        "files": s.decision.files,
+        "anchors": [
+            {
+                "file": r.anchor.file,
+                "stored_lines": [r.anchor.line_start, r.anchor.line_end],
+                "current_lines": (
+                    [r.current_line_start, r.current_line_end]
+                    if r.current_line_start is not None
+                    else None
+                ),
+                "status": r.status.value,
+                "detail": r.detail,
+            }
+            for r in s.anchor_reports
+        ],
+    }
+
+
+def _print_staleness_table(
+    summaries: list[DecisionStaleness], *, show_all: bool
+) -> None:
+    noisy = {Status.FRESH, Status.DRIFTED, Status.UNKNOWN}
+    printed = 0
+    for s in summaries:
+        if not show_all and s.status in noisy and s.status != Status.UNKNOWN:
+            continue
+        printed += 1
+        marker = _status_marker(s.status)
+        files = ", ".join(s.decision.files) or "—"
+        click.echo(f"{marker} {s.decision.id}  {s.status.value:<8}  {files}")
+        for r in s.anchor_reports:
+            if r.status == Status.FRESH and not show_all:
+                continue
+            line = f"    {r.anchor.file}:{r.anchor.line_start}-{r.anchor.line_end}"
+            if r.current_line_start and (
+                r.current_line_start != r.anchor.line_start
+                or r.current_line_end != r.anchor.line_end
+            ):
+                line += (
+                    f"  →  now {r.current_line_start}-{r.current_line_end}"
+                )
+            if r.detail:
+                line += f"  ({r.detail})"
+            click.echo(line)
+    if printed == 0:
+        click.echo("all decisions fresh")
+
+
+def _status_marker(status: Status) -> str:
+    return {
+        Status.FRESH: "[ok]",
+        Status.DRIFTED: "[~~]",
+        Status.STALE: "[!!]",
+        Status.MISSING: "[??]",
+        Status.UNKNOWN: "[..]",
+    }.get(status, "[..]")
+
+
 def _print_hit(h: QueryHit) -> None:
     d = h.decision
     click.echo(f"\n{d.id}  {d.chosen}  ({h.reason})")
@@ -285,7 +388,10 @@ def _print_hit(h: QueryHit) -> None:
     if d.git_sha:
         click.echo(f"  sha:   {d.git_sha[:10]}")
     for a in d.anchors:
-        click.echo(f"  anchor: {a.file}:{a.line_start}-{a.line_end}")
+        label = f"  anchor: {a.file}:{a.line_start}-{a.line_end}"
+        if a.symbol:
+            label += f"  [symbol: {a.symbol}]"
+        click.echo(label)
     if d.alternatives:
         click.echo(f"  rejected: {', '.join(d.alternatives)}")
     if d.tags:

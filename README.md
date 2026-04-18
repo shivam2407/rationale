@@ -60,6 +60,9 @@ rationale init
 why src/payment.ts:42
 why "retry"
 rationale list
+
+# 5. Before a release, check which decisions have gone stale
+rationale check
 ```
 
 ## Wiring up your coding agent
@@ -201,11 +204,36 @@ This is your repo's permanent record. It is `git`-tracked, plain text, grep-able
 | `rationale why <file>` | All decisions touching that file. |
 | `rationale why "<term>"` | Text search across decision bodies. |
 | `rationale list` | All decisions, newest first. |
+| `rationale check` | Report stale decisions vs. the current working tree. Exits 1 when any decision is STALE or MISSING — suitable for CI. |
 | `rationale install-hook` | Print the Claude Code Stop-hook config. |
 
 A short `why` shim is also installed so you can type `why src/x.py:42` directly.
 
-Add `--json` to `why` for machine-readable output (great for editor integrations).
+Add `--json` to `why` or `check` for machine-readable output (great for
+editor integrations).
+
+## Surviving refactors
+
+Every anchor captured in v1 records two extra fields beyond the line range:
+
+- a **symbol path** (e.g. `PaymentService.retry`) extracted from the
+  enclosing function/class, and
+- a **content fingerprint** (SHA-256 of the anchored block, normalized
+  for trailing whitespace).
+
+Together they let `rationale check` classify a decision into one of five
+states:
+
+| Status | Meaning |
+|---|---|
+| FRESH | Content at the stored line range still matches. |
+| DRIFTED | Content matches, but the symbol moved to a new line range. Still valid — the anchor quietly re-binds on next capture. |
+| STALE | Symbol still exists but the body changed. The rationale may no longer apply; review it. |
+| MISSING | File or symbol is gone. |
+| UNKNOWN | Anchor predates v1 and has no content hash; can't classify. |
+
+Drop `rationale check` into CI to fail the build when a PR touches code
+with stale reasoning and doesn't update it.
 
 ## Configuration
 
@@ -218,11 +246,12 @@ In offline mode, Rationale produces a low-confidence decision per edited file, d
 
 ## Roadmap
 
-- **v0 (this release)** — Claude Code hook, Haiku distiller, line-range anchors, `why` CLI.
-- **v1** — Cursor extension, AST anchors via tree-sitter, VS Code CodeLens, staleness detector.
+- **v0** — Claude Code hook, Haiku distiller, line-range anchors, `why` CLI.
+- **v1 (this release)** — Symbolic anchors (Python `ast` + regex for JS/TS/Go/Rust), content-hash staleness detector, `rationale check` with CI exit code, richer JSON output.
+- **v1.x** — Tree-sitter backend for broader language coverage, VS Code CodeLens extension, Cursor extension.
 - **v2** — Cross-agent MCP server, EU AI Act compliance export, decision graph, team sync.
 
-See [`rationale-architecture.md`](rationale-architecture.md) for the full design.
+See [`rationale-architecture.md`](rationale-architecture.md) for the full design and [`CHANGELOG.md`](CHANGELOG.md) for release notes.
 
 ## Contributing
 

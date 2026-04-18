@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rationale"
-version = "0.1.0"
+version = "0.2.0"
 description = "git blame for AI-generated code — code-anchored, repo-local decision log"
 readme = "README.md"
 license = {text = "MIT"}
@@ -12,16 +12,33 @@ requires-python = ">=3.10"
 authors = [
     {name = "Shivam Rawat", email = "shivarawat24@gmail.com"},
 ]
-keywords = ["ai", "claude", "decision-log", "adr", "provenance", "agentic"]
+keywords = [
+    "ai",
+    "claude",
+    "decision-log",
+    "adr",
+    "provenance",
+    "agentic",
+    "llm",
+    "rationale",
+    "code-review",
+    "audit",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Software Development :: Version Control",
 ]
 dependencies = [
     "click>=8.1",
@@ -33,6 +50,8 @@ dependencies = [
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",
+    "build>=1.2",
+    "twine>=5.0",
 ]
 
 [project.scripts]
@@ -41,7 +60,10 @@ why = "rationale.cli:why_shortcut"
 
 [project.urls]
 Homepage = "https://github.com/shivam2407/rationale"
+Documentation = "https://github.com/shivam2407/rationale#readme"
 Issues = "https://github.com/shivam2407/rationale/issues"
+Source = "https://github.com/shivam2407/rationale"
+Changelog = "https://github.com/shivam2407/rationale/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["rationale", "rationale.*"]

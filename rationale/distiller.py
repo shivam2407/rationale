@@ -12,6 +12,7 @@ from typing import Callable, Protocol
 
 from rationale.capture import SessionTrace
 from rationale.models import Decision, DecisionAnchor
+from rationale.symbols import hash_file_range, symbol_at_line
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 MAX_DECISIONS = 20
@@ -206,22 +207,38 @@ def _resolve_anchors(files: list[str], trace: SessionTrace) -> list[DecisionAnch
         if matched:
             line_start = min(e.line_start for e in matched)
             line_end = max(e.line_end for e in matched)
-            key = (matched[0].file, line_start, line_end)
+            file_path = matched[0].file
+            key = (file_path, line_start, line_end)
             if key not in seen:
                 seen.add(key)
-                anchors.append(
-                    DecisionAnchor(
-                        file=matched[0].file,
-                        line_start=line_start,
-                        line_end=line_end,
-                    )
-                )
+                anchors.append(_enriched_anchor(file_path, line_start, line_end))
         else:
             key = (f, 1, 1)
             if key not in seen:
                 seen.add(key)
-                anchors.append(DecisionAnchor(file=f, line_start=1, line_end=1))
+                anchors.append(_enriched_anchor(f, 1, 1))
     return anchors
+
+
+def _enriched_anchor(file: str, line_start: int, line_end: int) -> DecisionAnchor:
+    """Attach symbol + content hash to an anchor when the file is readable.
+
+    Symbol and hash survive refactors better than line numbers:
+    - symbol lets us re-locate the anchor when the block moves
+    - content_hash lets us detect that the code itself has changed
+    If the file isn't on disk (typical during tests where edits reference
+    synthetic paths), both fields stay None and the anchor degrades to v0.
+    """
+    sym = symbol_at_line(file, line_start)
+    symbol_name = sym.name if sym else None
+    digest = hash_file_range(file, line_start, line_end)
+    return DecisionAnchor(
+        file=file,
+        line_start=line_start,
+        line_end=line_end,
+        symbol=symbol_name,
+        content_hash=digest,
+    )
 
 
 def _fuzzy_lookup(file: str, edits_by_file: dict[str, list]) -> list:
@@ -285,10 +302,8 @@ def _heuristic_distill(
                 chosen=chosen,
                 reasoning=_truncate(reasoning, 1200),
                 anchors=[
-                    DecisionAnchor(
-                        file=edit.file,
-                        line_start=edit.line_start,
-                        line_end=edit.line_end,
+                    _enriched_anchor(
+                        edit.file, edit.line_start, edit.line_end
                     )
                 ],
                 alternatives=[],
