@@ -36,13 +36,22 @@ d-a3f9c1  fixed 3x retry  (exact-line)
 ## Install
 
 ```bash
+pip install rationale
+
+# Optional: enable Haiku-based distillation (otherwise the heuristic
+# offline distiller runs and no API calls are made).
+pip install "rationale[llm]"
+```
+
+Or from source:
+
+```bash
 git clone https://github.com/shivam2407/rationale.git
 cd rationale
 pip install -e .
 ```
 
-Requires Python 3.10+. A PyPI release (`pip install rationale`) is planned
-once the wire format stabilizes.
+Requires Python 3.10+.
 
 ## Quickstart
 

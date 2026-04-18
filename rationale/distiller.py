@@ -46,12 +46,19 @@ class LLMClient(Protocol):
 
 @dataclass
 class AnthropicClient:
-    """Wraps the Anthropic Messages API. Lazy-imports the SDK."""
+    """Wraps the Anthropic Messages API. Lazy-imports the SDK so the package
+    stays functional when installed without the ``[llm]`` extra."""
 
     api_key: str | None = None
 
     def complete(self, system: str, user: str, model: str) -> str:
-        import anthropic  # lazy import — keeps tests + CLI fast w/o the SDK on path
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise RuntimeError(
+                "anthropic SDK is not installed. Install `rationale[llm]` "
+                "to enable LLM-based distillation, or set RATIONALE_OFFLINE=1."
+            ) from exc
 
         client = anthropic.Anthropic(api_key=self.api_key)
         resp = client.messages.create(
@@ -128,11 +135,13 @@ class Distiller:
             return None
         if not os.environ.get("ANTHROPIC_API_KEY"):
             return None
+        # Probe for the optional SDK up front so offline-only installs never
+        # hit a late-stage RuntimeError inside the Stop hook.
         try:
-            return AnthropicClient()
+            import anthropic  # noqa: F401
         except ImportError:
-            # Anthropic SDK not installed — offline mode is the sane fallback.
             return None
+        return AnthropicClient()
 
 
 def _has_signal(trace: SessionTrace) -> bool:

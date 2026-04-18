@@ -155,6 +155,33 @@ def test_distill_offline_falls_back_when_no_client(
     assert "heuristic" in decisions[0].tags
 
 
+def test_distill_falls_back_when_anthropic_sdk_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    trace_with_edits: SessionTrace,
+) -> None:
+    """With an API key set but the optional SDK not installed, distiller
+    must still produce a (heuristic) decision rather than crashing."""
+    import builtins
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    monkeypatch.delenv("RATIONALE_OFFLINE", raising=False)
+
+    real_import = builtins.__import__
+
+    def fake_import(name: str, *args, **kwargs):
+        if name == "anthropic":
+            raise ImportError("simulated: anthropic not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    decisions = Distiller().distill(trace_with_edits)
+    # Heuristic fallback kicked in, nothing raised
+    assert len(decisions) == 1
+    assert decisions[0].confidence == "low"
+    assert "heuristic" in decisions[0].tags
+
+
 def test_distill_resolves_fuzzy_anchor_paths() -> None:
     trace = SessionTrace(
         session_id="s",

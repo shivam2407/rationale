@@ -279,3 +279,20 @@ def test_check_decision_with_no_anchors_is_unknown(tmp_path: Path) -> None:
     summary = check_decision(decision, repo_root=tmp_path)
     assert summary.status == Status.UNKNOWN
     assert summary.anchor_reports == []
+
+
+def test_binary_file_reports_missing(tmp_path: Path) -> None:
+    """An anchor pointing at a binary file can't be compared; the module
+    contract classifies this as MISSING, not STALE."""
+    binary = tmp_path / "image.bin"
+    binary.write_bytes(b"\x00\x01\x02\x03\xff\xfe")
+    anchor = DecisionAnchor(
+        file="image.bin",
+        line_start=1,
+        line_end=1,
+        content_hash="deadbeefdeadbeef",
+        symbol=None,
+    )
+    report = check_anchor(anchor, repo_root=tmp_path)
+    assert report.status == Status.MISSING
+    assert "not readable" in report.detail.lower()

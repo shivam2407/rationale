@@ -25,6 +25,16 @@ from rationale.models import Decision, DecisionAnchor
 from rationale.symbols import find_symbol, hash_file_range
 
 
+def _is_readable_text(path: Path) -> bool:
+    """True when `path` is a readable UTF-8 text file. Binary and
+    decoding-failed files are treated as effectively missing."""
+    try:
+        path.read_text(encoding="utf-8")
+        return True
+    except (OSError, UnicodeDecodeError):
+        return False
+
+
 class Status(str, Enum):
     FRESH = "fresh"
     DRIFTED = "drifted"
@@ -79,6 +89,14 @@ def check_anchor(
             anchor=anchor,
             status=Status.MISSING,
             detail=f"file not found: {anchor.file}",
+        )
+    if not _is_readable_text(path):
+        # Binary or non-UTF-8 file: the module contract calls this MISSING
+        # because we can't compare content against the stored fingerprint.
+        return StalenessReport(
+            anchor=anchor,
+            status=Status.MISSING,
+            detail=f"file not readable as text: {anchor.file}",
         )
 
     if not anchor.content_hash:
