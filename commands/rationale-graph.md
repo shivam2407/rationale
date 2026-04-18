@@ -18,3 +18,5 @@ rationale graph "$ARGUMENTS"
 ```
 
 Pass `--json` to get a `{nodes, edges}` payload suitable for feeding into a downstream tool.
+
+Requires the `rationale` CLI (`pip install rationale`) to be on `PATH`.

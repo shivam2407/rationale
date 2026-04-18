@@ -145,6 +145,31 @@ def test_hooks_json_command_uses_quiet_flag() -> None:
     assert "--quiet" in cmd
 
 
+def test_hooks_json_command_degrades_gracefully() -> None:
+    """If the rationale CLI isn't on PATH yet (user installed the plugin
+    before running `pip install rationale`), Claude Code's Stop hook
+    must not surface a failure. We require the command to append
+    ``|| true`` so the hook always exits 0."""
+    hooks = _load(REPO_ROOT / "hooks" / "hooks.json")
+    cmd = hooks["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert cmd.rstrip().endswith("|| true"), (
+        f"Stop hook command must end with '|| true' so a missing CLI "
+        f"doesn't crash the session. Got: {cmd!r}"
+    )
+
+
+def test_hooks_json_entries_have_type_field() -> None:
+    """Regression: every inner hook entry must declare type='command'.
+    The ECC schema notes say a missing 'type' is silently accepted by
+    some validator versions and rejected by others — pin it here."""
+    hooks = _load(REPO_ROOT / "hooks" / "hooks.json")
+    for stop_entry in hooks["hooks"]["Stop"]:
+        for inner in stop_entry["hooks"]:
+            assert inner.get("type") == "command", (
+                f"inner hook entry missing type='command': {inner}"
+            )
+
+
 # --- commands/*.md ----------------------------------------------------------
 
 
@@ -179,3 +204,14 @@ def test_command_file_invokes_rationale_cli(path: Path) -> None:
     plugin contract stays thin: Python does the work, the command file
     is just a description + invocation."""
     assert "rationale" in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("path", _command_files(), ids=lambda p: p.name)
+def test_command_file_documents_pip_prerequisite(path: Path) -> None:
+    """Every slash command must tell the user the prerequisite if the
+    CLI isn't on PATH yet. The hook silently `|| true`s; the slash
+    commands should explicitly say 'pip install rationale'."""
+    text = path.read_text(encoding="utf-8").lower()
+    assert "pip install rationale" in text, (
+        f"{path.name}: missing `pip install rationale` prerequisite note"
+    )

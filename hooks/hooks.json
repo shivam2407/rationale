@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "rationale capture --quiet"
+            "command": "rationale capture --quiet || true"
           }
         ]
       }

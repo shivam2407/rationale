@@ -20,3 +20,5 @@ rationale summary "$ARGUMENTS"
 ```
 
 Supports `--json`, `--top N`, and `--path <repo>`.
+
+Requires the `rationale` CLI (`pip install rationale`) to be on `PATH`.

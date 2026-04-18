@@ -4,7 +4,7 @@ All notable changes to Rationale are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] — 2026-04-18
 
 ### Added
 
@@ -19,11 +19,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/rationale-summary`, `/rationale-graph`, and `/rationale-export`
   wired up for them.
 - Plugin manifest test suite (`tests/test_plugin_manifests.py`) that
-  pins the validator rules: plugin.json must not declare `hooks`,
+  pins the validator rules: `plugin.json` must not declare `hooks`,
   version fields across `plugin.json` / `marketplace.json` / the Python
-  package must match, slash-command files must carry a
-  `description:` frontmatter entry, and the Stop hook must pass
-  `--quiet`.
+  package must match, slash-command files must carry a `description:`
+  frontmatter entry, each slash command must document the
+  `pip install rationale` prerequisite, the Stop hook must pass
+  `--quiet`, and the Stop hook command must degrade gracefully when
+  the `rationale` CLI isn't on `PATH`.
+
+### Changed
+
+- The Stop hook now appends `|| true` to the capture command so a
+  session end never fails visibly inside Claude Code just because the
+  user installed the plugin before running `pip install rationale`.
 
 ## [0.3.0] — 2026-04-18
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rationale"
-version = "0.3.0"
+version = "0.3.1"
 description = "git blame for AI-generated code — code-anchored, repo-local decision log"
 readme = "README.md"
 license = {text = "MIT"}
