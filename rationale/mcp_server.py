@@ -198,8 +198,10 @@ def list_tools() -> list[dict[str, Any]]:
 
 
 def dispatch_tool(
-    name: str, arguments: Any, *, repo_root: Path | str
+    name: str | None, arguments: Any, *, repo_root: Path | str
 ) -> Any:
+    if not isinstance(name, str) or not name:
+        raise MCPToolError("tool name is required and must be a string")
     tool = TOOLS.get(name)
     if tool is None:
         raise MCPToolError(f"unknown tool: {name}")
@@ -244,10 +246,17 @@ def serve_stdio(
         except json.JSONDecodeError:
             response = _error_response(None, -32700, "Parse error")
         except Exception as exc:  # noqa: BLE001 - transport-level catch-all
+            # Do NOT leak the exception text to the client — a networked
+            # MCP transport would happily echo file paths and stack hints
+            # to whoever is listening. Log locally, return a generic code.
+            print(
+                f"rationale: mcp internal error: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
             response = _error_response(
                 request.get("id") if isinstance(request, dict) else None,
                 -32603,
-                f"Internal error: {exc}",
+                "Internal error",
             )
         if response is not None:
             out_stream.write(json.dumps(response) + "\n")
@@ -259,15 +268,23 @@ def _handle_request(
 ) -> dict[str, Any] | None:
     """Produce a JSON-RPC response for a single request envelope.
 
-    Returns None for valid notifications (no id). Invalid envelopes
-    produce an error response. Separated from serve_stdio so the transport
-    loop is trivial and the business logic is directly testable.
+    Returns None for valid notifications (requests without an ``id``).
+    Per JSON-RPC 2.0 §4.1, notifications must never receive a response,
+    regardless of which method they target. Invalid envelopes produce an
+    error response. Separated from serve_stdio so the transport loop
+    stays trivial and the business logic is directly testable.
     """
     if not isinstance(request, dict):
         return _error_response(None, -32600, "Invalid Request")
     method = request.get("method")
     req_id = request.get("id")
     params = request.get("params") or {}
+
+    # Notifications: JSON-RPC 2.0 requires no response for ANY method
+    # that is invoked without an ``id``. Handle this up front, before
+    # dispatching to any method branch.
+    if req_id is None:
+        return None
 
     if method == "initialize":
         return {
@@ -306,9 +323,6 @@ def _handle_request(
             },
         }
 
-    # Notification (no id): ignore silently
-    if req_id is None:
-        return None
     return _error_response(req_id, -32601, f"method not found: {method}")
 
 

@@ -252,3 +252,58 @@ def test_serve_stdio_skips_blank_lines(tmp_path: Path) -> None:
     stdout = io.StringIO()
     serve_stdio(tmp_path, stdin=stdin, stdout=stdout)
     assert stdout.getvalue() == ""
+
+
+def test_serve_stdio_internal_error_returns_minus_32603_without_leaking_detail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An internal exception during request handling must produce a -32603
+    response with a generic message — never the exception text."""
+    from rationale import mcp_server
+
+    def boom(_request: object, _root: object) -> None:
+        raise RuntimeError("sensitive internal detail: /etc/passwd")
+
+    monkeypatch.setattr(mcp_server, "_handle_request", boom)
+
+    stdin = io.StringIO(
+        json.dumps({"jsonrpc": "2.0", "id": 9, "method": "initialize"}) + "\n"
+    )
+    stdout = io.StringIO()
+    serve_stdio(tmp_path, stdin=stdin, stdout=stdout)
+    response = json.loads(stdout.getvalue().strip())
+    assert response["id"] == 9
+    assert response["error"]["code"] == -32603
+    # The exception text must NOT appear in the wire response — it's
+    # logged server-side instead (to stderr).
+    assert "/etc/passwd" not in response["error"]["message"]
+    assert "sensitive internal detail" not in response["error"]["message"]
+    captured = capsys.readouterr()
+    assert "sensitive internal detail" in captured.err
+
+
+def test_notification_to_initialize_returns_none() -> None:
+    """JSON-RPC 2.0 §4.1: notifications (no id) must never receive a
+    response, regardless of which method they target."""
+    resp = _handle_request(
+        {"jsonrpc": "2.0", "method": "initialize"},
+        Path("."),
+    )
+    assert resp is None
+
+
+def test_notification_to_tools_list_returns_none() -> None:
+    resp = _handle_request(
+        {"jsonrpc": "2.0", "method": "tools/list"},
+        Path("."),
+    )
+    assert resp is None
+
+
+def test_dispatch_tool_rejects_non_string_name(
+    populated_store: DecisionStore,
+) -> None:
+    with pytest.raises(MCPToolError):
+        dispatch_tool(None, {}, repo_root=populated_store.root)  # type: ignore[arg-type]
+    with pytest.raises(MCPToolError):
+        dispatch_tool("", {}, repo_root=populated_store.root)
