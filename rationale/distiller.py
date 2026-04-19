@@ -6,13 +6,15 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Protocol
 
+from rationale.anchoring import build_anchor
 from rationale.capture import SessionTrace
 from rationale.models import Decision, DecisionAnchor
-from rationale.symbols import hash_file_range, symbol_at_line
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 MAX_DECISIONS = 20
@@ -75,6 +77,49 @@ class AnthropicClient:
         return "".join(chunks)
 
 
+@dataclass
+class ClaudeCodeClient:
+    """Distill via the local ``claude`` CLI in non-interactive mode.
+
+    Uses whatever authentication the user already has wired up to Claude
+    Code — a Max subscription is enough. Lets the Stop-hook distiller
+    work on machines that have no ANTHROPIC_API_KEY and no SDK installed,
+    which is the overwhelmingly common case for Claude Code plugin users.
+
+    Latency is higher than the SDK path (process spawn + auth handshake),
+    but the Stop hook is already async from the user's perspective.
+    """
+
+    binary: str = "claude"
+    timeout_seconds: int = 120
+
+    def complete(self, system: str, user: str, model: str) -> str:
+        prompt = f"{system}\n\n{user}"
+        cmd = [
+            self.binary,
+            "-p",
+            prompt,
+            "--model",
+            model,
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(f"claude -p failed to start: {exc}") from exc
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"claude -p exited {result.returncode}: "
+                f"{(result.stderr or '').strip()[:400]}"
+            )
+        return result.stdout
+
+
 class Distiller:
     """Turns a SessionTrace into a list of Decision objects.
 
@@ -129,19 +174,32 @@ class Distiller:
         return decisions
 
     def _resolve_client(self) -> LLMClient | None:
+        """Pick a distillation backend, in order of preference.
+
+        1. An explicitly injected client (tests, custom integrations).
+        2. ``RATIONALE_OFFLINE=1`` forces the heuristic — bypass everything.
+        3. The local ``claude`` CLI if it's on PATH. This is the default for
+           Claude Code plugin users: reuses their Max auth, no API key.
+        4. The ``anthropic`` SDK if it's installed AND ``ANTHROPIC_API_KEY``
+           is set. For users who prefer the direct-API path.
+        5. Otherwise None → heuristic fallback.
+        """
         if self.client is not None:
             return self.client
         if os.environ.get("RATIONALE_OFFLINE") == "1":
             return None
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            return None
-        # Probe for the optional SDK up front so offline-only installs never
-        # hit a late-stage RuntimeError inside the Stop hook.
-        try:
-            import anthropic  # noqa: F401
-        except ImportError:
-            return None
-        return AnthropicClient()
+
+        if shutil.which("claude"):
+            return ClaudeCodeClient()
+
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            try:
+                import anthropic  # noqa: F401
+            except ImportError:
+                return None
+            return AnthropicClient()
+
+        return None
 
 
 def _has_signal(trace: SessionTrace) -> bool:
@@ -220,34 +278,13 @@ def _resolve_anchors(files: list[str], trace: SessionTrace) -> list[DecisionAnch
             key = (file_path, line_start, line_end)
             if key not in seen:
                 seen.add(key)
-                anchors.append(_enriched_anchor(file_path, line_start, line_end))
+                anchors.append(build_anchor(file_path, line_start, line_end))
         else:
             key = (f, 1, 1)
             if key not in seen:
                 seen.add(key)
-                anchors.append(_enriched_anchor(f, 1, 1))
+                anchors.append(build_anchor(f, 1, 1))
     return anchors
-
-
-def _enriched_anchor(file: str, line_start: int, line_end: int) -> DecisionAnchor:
-    """Attach symbol + content hash to an anchor when the file is readable.
-
-    Symbol and hash survive refactors better than line numbers:
-    - symbol lets us re-locate the anchor when the block moves
-    - content_hash lets us detect that the code itself has changed
-    If the file isn't on disk (typical during tests where edits reference
-    synthetic paths), both fields stay None and the anchor degrades to v0.
-    """
-    sym = symbol_at_line(file, line_start)
-    symbol_name = sym.name if sym else None
-    digest = hash_file_range(file, line_start, line_end)
-    return DecisionAnchor(
-        file=file,
-        line_start=line_start,
-        line_end=line_end,
-        symbol=symbol_name,
-        content_hash=digest,
-    )
 
 
 def _fuzzy_lookup(file: str, edits_by_file: dict[str, list]) -> list:
@@ -311,7 +348,7 @@ def _heuristic_distill(
                 chosen=chosen,
                 reasoning=_truncate(reasoning, 1200),
                 anchors=[
-                    _enriched_anchor(
+                    build_anchor(
                         edit.file, edit.line_start, edit.line_end
                     )
                 ],

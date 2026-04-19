@@ -346,6 +346,51 @@ def test_export_writes_jsonld(
     assert "proof" not in parsed  # unsigned by default
 
 
+def test_capture_skips_distillation_when_runtime_record_was_recent(
+    runner: CliRunner,
+    tmp_path: Path,
+    transcript_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When runtime capture (rationale_record via MCP) has already written
+    a decision in this session, the Stop-hook should skip transcript
+    distillation to avoid duplicate / lower-quality entries."""
+    from rationale.mcp_server import dispatch_tool
+    from rationale.storage import DecisionStore
+
+    monkeypatch.setenv("RATIONALE_OFFLINE", "1")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    store = DecisionStore(tmp_path)
+    store.init()
+    dispatch_tool(
+        "rationale_record",
+        {
+            "chosen": "runtime decision",
+            "reasoning": "captured at runtime",
+            "files": ["src/payment.ts"],
+        },
+        repo_root=tmp_path,
+    )
+    before = len(store.all())
+
+    result = runner.invoke(
+        main,
+        [
+            "capture",
+            "--path",
+            str(tmp_path),
+            "--transcript",
+            str(transcript_file),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert len(store.all()) == before, (
+        "Stop-hook must not add decisions when runtime capture was recent"
+    )
+    assert "runtime" in result.output.lower() or "skip" in result.output.lower()
+
+
 def test_export_signed_requires_signing_key(
     runner: CliRunner, tmp_path: Path
 ) -> None:

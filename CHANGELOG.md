@@ -4,6 +4,48 @@ All notable changes to Rationale are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-04-18
+
+### Added
+
+- **Runtime decision capture** via a new `rationale_record` MCP tool.
+  This is now the primary capture path: the agent calls it the moment
+  it makes a non-trivial choice, passing the alternatives and its own
+  reasoning. No post-hoc transcript distillation, no LLM roundtrip, no
+  API key required. The Stop-hook distiller becomes a safety net for
+  sessions where the agent didn't use the tool.
+- **`ClaudeCodeClient`** — when the Stop-hook fallback does run and
+  the local `claude` binary is on `PATH`, distillation now uses
+  `claude -p` instead of the Anthropic SDK. Claude Max users get the
+  plugin working end-to-end with no `ANTHROPIC_API_KEY` in sight.
+- **Plugin `CLAUDE.md`** — Claude Code auto-loads it when the plugin
+  is installed. Tells the agent when to call `rationale_record` and
+  when to consult `rationale_why` before touching deliberately-tuned
+  values.
+- **Recency guard on the Stop hook** — if `rationale_record` wrote a
+  decision in the last two minutes, transcript distillation is
+  skipped to avoid duplicate (and usually lower-quality) entries.
+
+### Changed
+
+- Distiller backend preference order, in descending priority:
+  injected client → `RATIONALE_OFFLINE=1` (heuristic) → local `claude`
+  CLI → `anthropic` SDK with `ANTHROPIC_API_KEY` → heuristic. The
+  plugin-install case is now a first-class path instead of a last
+  resort.
+- `build_anchor` (previously `_enriched_anchor` in `distiller.py`) is
+  now a public helper on `rationale.anchoring`. Both the distiller
+  and the new MCP tool use it for consistent symbol + content-hash
+  anchoring.
+
+### Notes
+
+- The heuristic distiller is still present and still the final
+  fallback, but a clean Claude Code install should never hit it.
+- If you were relying on `anthropic` being picked up automatically
+  when the SDK was installed but no API key was set, behaviour is
+  unchanged.
+
 ## [0.3.1] — 2026-04-18
 
 ### Changed

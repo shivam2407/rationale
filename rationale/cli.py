@@ -88,6 +88,19 @@ def capture_cmd(transcript: str | None, path: str | None, quiet: bool) -> None:
     )
     store = _store(resolved_path)
     store.init()
+
+    # Runtime capture via the `rationale_record` MCP tool is the primary
+    # path in v0.4. If the agent already recorded decisions inside the
+    # session, skip transcript distillation — it would produce duplicate
+    # (and usually lower-quality) entries.
+    if _has_recent_runtime_decisions(store):
+        if not quiet:
+            click.echo(
+                "skipping distillation: runtime capture already recorded "
+                "decisions in this session"
+            )
+        return
+
     trace = parse_transcript(transcript_path)
     distiller = Distiller(git_sha=current_git_sha(store.root))
     decisions = distiller.distill(trace)
@@ -103,6 +116,33 @@ def capture_cmd(transcript: str | None, path: str | None, quiet: bool) -> None:
                 click.echo(f"  {p.relative_to(store.root)}")
             except ValueError:
                 click.echo(f"  {p}")
+
+
+# Window after which a prior runtime decision no longer counts as "this
+# session". Two minutes is longer than any normal Claude Code turn but
+# shorter than the gap between unrelated sessions — empirically a good
+# default.
+RUNTIME_RECENT_SECONDS = 120
+
+
+def _has_recent_runtime_decisions(store: DecisionStore) -> bool:
+    """True when a decision file in .rationale/ was modified in the last
+    ``RUNTIME_RECENT_SECONDS``. Used by the Stop hook to detect that the
+    agent already called the `rationale_record` MCP tool during the
+    session, so transcript distillation should be skipped."""
+    import time
+
+    base = store.base_dir
+    if not base.exists():
+        return False
+    cutoff = time.time() - RUNTIME_RECENT_SECONDS
+    for md in base.rglob("d-*.md"):
+        try:
+            if md.stat().st_mtime >= cutoff:
+                return True
+        except OSError:
+            continue
+    return False
 
 
 @main.command("why", help='Lookup decisions: `why src/x.py:42` or `why "retry"`.')

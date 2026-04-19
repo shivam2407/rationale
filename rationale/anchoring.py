@@ -10,7 +10,8 @@ Tree-sitter / AST anchors arrive in v1.
 
 from __future__ import annotations
 
-from rationale.models import Decision
+from rationale.models import Decision, DecisionAnchor
+from rationale.symbols import hash_file_range, symbol_at_line
 
 # How far we'll drift before refusing to call a decision "still relevant"
 # for a given line. Tuned so a moderate refactor (a function moving down
@@ -75,3 +76,29 @@ def _suffix_match(short: str, long: str) -> bool:
         return False
     boundary_char = long[-len(short) - 1]
     return boundary_char == "/"
+
+
+def build_anchor(
+    file: str, line_start: int, line_end: int
+) -> DecisionAnchor:
+    """Build a DecisionAnchor enriched with the enclosing symbol name and
+    a content hash of the anchored block — when the file is readable.
+
+    If the file isn't on disk (synthetic paths, binary files, permission
+    errors), both ``symbol`` and ``content_hash`` fall back to ``None`` and
+    the anchor degrades to a pure line-range record — still usable by the
+    query layer, just without refactor-survival and staleness signals.
+
+    This is the anchor constructor shared by the transcript distiller
+    (v0/v1 path) and the ``rationale_record`` MCP tool (v0.4 runtime path).
+    """
+    sym = symbol_at_line(file, line_start)
+    symbol_name = sym.name if sym else None
+    digest = hash_file_range(file, line_start, line_end)
+    return DecisionAnchor(
+        file=file,
+        line_start=line_start,
+        line_end=line_end,
+        symbol=symbol_name,
+        content_hash=digest,
+    )

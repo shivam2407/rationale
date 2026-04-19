@@ -159,9 +159,11 @@ def test_distill_falls_back_when_anthropic_sdk_missing(
     monkeypatch: pytest.MonkeyPatch,
     trace_with_edits: SessionTrace,
 ) -> None:
-    """With an API key set but the optional SDK not installed, distiller
-    must still produce a (heuristic) decision rather than crashing."""
+    """With an API key set but the optional SDK not installed AND no
+    claude binary on PATH, distiller must still produce a (heuristic)
+    decision rather than crashing."""
     import builtins
+    import shutil
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
     monkeypatch.delenv("RATIONALE_OFFLINE", raising=False)
@@ -174,11 +176,93 @@ def test_distill_falls_back_when_anthropic_sdk_missing(
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
+    # Also hide the claude binary so ClaudeCodeClient isn't resolved.
+    real_which = shutil.which
+    monkeypatch.setattr(
+        shutil, "which", lambda name: None if name == "claude" else real_which(name)
+    )
 
     decisions = Distiller().distill(trace_with_edits)
     # Heuristic fallback kicked in, nothing raised
     assert len(decisions) == 1
     assert decisions[0].confidence == "low"
+    assert "heuristic" in decisions[0].tags
+
+
+def test_distill_prefers_claude_binary_when_on_path(
+    monkeypatch: pytest.MonkeyPatch,
+    trace_with_edits: SessionTrace,
+) -> None:
+    """Plugin-install case: user has Claude Code (claude binary) but no
+    ANTHROPIC_API_KEY. The distiller should run `claude -p` instead of
+    falling through to the offline heuristic."""
+    import shutil
+    import subprocess
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("RATIONALE_OFFLINE", raising=False)
+    monkeypatch.setattr(
+        shutil, "which", lambda name: "/usr/local/bin/claude" if name == "claude" else None
+    )
+
+    class FakeCompleted:
+        def __init__(self) -> None:
+            self.returncode = 0
+            self.stdout = json.dumps(
+                [
+                    {
+                        "chosen": "retry 3x",
+                        "alternatives": ["exponential", "circuit breaker"],
+                        "reasoning": "downstream caps traffic",
+                        "files": ["src/payment.ts"],
+                        "confidence": "medium",
+                        "tags": ["reliability"],
+                    }
+                ]
+            )
+            self.stderr = ""
+
+    captured: dict = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return FakeCompleted()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    decisions = Distiller().distill(trace_with_edits)
+    assert len(decisions) == 1
+    assert decisions[0].chosen == "retry 3x"
+    # Confirm the distiller actually shelled out to `claude -p`
+    assert captured["cmd"][0].endswith("claude")
+    assert "-p" in captured["cmd"] or "--print" in captured["cmd"]
+
+
+def test_claude_code_client_handles_nonzero_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    trace_with_edits: SessionTrace,
+) -> None:
+    """If `claude -p` fails (auth issue, network, etc.), the distiller
+    falls back to the heuristic rather than crashing the Stop hook."""
+    import shutil
+    import subprocess
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("RATIONALE_OFFLINE", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/local/bin/claude" if name == "claude" else None)
+
+    class FakeFail:
+        def __init__(self) -> None:
+            self.returncode = 1
+            self.stdout = ""
+            self.stderr = "claude: not authenticated"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: FakeFail())
+
+    decisions = Distiller().distill(trace_with_edits)
+    # Failed LLM → heuristic fallback, no exception
+    assert len(decisions) == 1
     assert "heuristic" in decisions[0].tags
 
 

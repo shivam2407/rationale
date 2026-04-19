@@ -19,13 +19,18 @@ without subprocess gymnastics.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from rationale import __version__
+from rationale.anchoring import build_anchor
+from rationale.capture import current_git_sha
+from rationale.models import Decision
 from rationale.query import query
 from rationale.rollup import (
     OverallSummary,
@@ -115,6 +120,113 @@ def _check_handler(_args: dict[str, Any], repo_root: Path) -> list[dict[str, Any
     ]
 
 
+def _record_handler(args: dict[str, Any], repo_root: Path) -> dict[str, Any]:
+    """Runtime capture: write a Decision directly from the agent's
+    explicit call, skipping the Stop-hook transcript-distillation path.
+
+    This is the v0.4 primary capture path. The agent calls it whenever
+    it makes a non-trivial choice and passes the reasoning in its own
+    voice. No post-hoc LLM interpretation, no API key needed.
+    """
+    chosen = args.get("chosen")
+    reasoning = args.get("reasoning")
+    raw_files = args.get("files")
+
+    if not isinstance(chosen, str) or not chosen.strip():
+        raise MCPToolError("'chosen' must be a non-empty string")
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        raise MCPToolError("'reasoning' must be a non-empty string")
+    if not isinstance(raw_files, list) or not raw_files:
+        raise MCPToolError("'files' must be a non-empty list of file paths")
+
+    files: list[str] = [f for f in raw_files if isinstance(f, str) and f]
+    if not files:
+        raise MCPToolError("'files' must contain at least one string path")
+
+    alternatives_raw = args.get("alternatives", [])
+    alternatives = (
+        [a for a in alternatives_raw if isinstance(a, str)]
+        if isinstance(alternatives_raw, list)
+        else []
+    )
+
+    tags_raw = args.get("tags", [])
+    tags = (
+        [t for t in tags_raw if isinstance(t, str)]
+        if isinstance(tags_raw, list)
+        else []
+    )
+
+    confidence_raw = args.get("confidence", "medium")
+    confidence = (
+        confidence_raw
+        if isinstance(confidence_raw, str)
+        and confidence_raw.lower() in {"low", "medium", "high"}
+        else "medium"
+    )
+
+    session_id = args.get("session_id")
+    if session_id is not None and not isinstance(session_id, str):
+        session_id = None
+
+    # Build anchors — one per distinct file the decision touches. Line
+    # range defaults to the whole file when it exists on disk; if the
+    # agent later wants sub-file precision, a future tool param can
+    # accept {file, line_start, line_end} objects.
+    anchors = []
+    seen_files: set[str] = set()
+    for f in files:
+        if f in seen_files:
+            continue
+        seen_files.add(f)
+        resolved = f
+        abs_path = Path(f) if Path(f).is_absolute() else repo_root / f
+        try:
+            if abs_path.exists():
+                text = abs_path.read_text(encoding="utf-8")
+                line_count = max(1, len(text.splitlines()) or 1)
+            else:
+                line_count = 1
+        except (OSError, UnicodeDecodeError):
+            line_count = 1
+        anchors.append(build_anchor(resolved, 1, line_count))
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Decision id: stable-ish across retries on the same inputs, unique
+    # enough across concurrent records via the timestamp suffix.
+    payload = f"{session_id or 'runtime'}|{chosen}|{now}".encode("utf-8")
+    decision_id = f"d-{hashlib.sha1(payload).hexdigest()[:8]}"
+
+    decision = Decision(
+        id=decision_id,
+        timestamp=now,
+        agent="claude-code",
+        chosen=chosen.strip(),
+        reasoning=reasoning.strip(),
+        anchors=anchors,
+        alternatives=alternatives,
+        confidence=confidence,
+        tags=tags,
+        git_sha=current_git_sha(repo_root),
+        session_id=session_id,
+    )
+
+    store = DecisionStore(repo_root)
+    store.init()
+    path = store.save(decision)
+
+    try:
+        saved_to = str(path.relative_to(repo_root))
+    except ValueError:
+        saved_to = str(path)
+
+    return {
+        "id": decision.id,
+        "saved_to": saved_to,
+        "status": "recorded",
+    }
+
+
 def _summary_handler(_args: dict[str, Any], repo_root: Path) -> dict[str, Any]:
     store = DecisionStore(repo_root)
     decisions = store.all()
@@ -142,6 +254,58 @@ def _rollup_to_dict(r: Rollup) -> dict[str, Any]:
 
 
 TOOLS: dict[str, ToolSpec] = {
+    "rationale_record": ToolSpec(
+        name="rationale_record",
+        description=(
+            "Record a non-trivial decision you just made. Call this when "
+            "you pick one approach over alternatives — choosing a retry "
+            "count, selecting a library, structuring an API, naming a "
+            "module, splitting a function. Skip trivial edits (typos, "
+            "moves, mechanical refactors). The recorded reasoning is what "
+            "a future session will see when someone runs `rationale why "
+            "<file>:<line>` on the code you touched."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chosen": {
+                    "type": "string",
+                    "description": "Short noun phrase for what you picked (e.g. 'fixed 3x retry').",
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "One paragraph in your own voice — why this choice over the alternatives.",
+                },
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Repo-relative paths the decision affects.",
+                    "minItems": 1,
+                },
+                "alternatives": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Other options you considered and rejected.",
+                },
+                "confidence": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "description": "How confident you are in the call (default: medium).",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Short topical tags (e.g. ['reliability', 'payments']).",
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Optional Claude Code session id; lets the Stop hook skip redundant distillation.",
+                },
+            },
+            "required": ["chosen", "reasoning", "files"],
+        },
+        handler=_record_handler,
+    ),
     "rationale_why": ToolSpec(
         name="rationale_why",
         description=(

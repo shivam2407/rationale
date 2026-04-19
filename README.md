@@ -251,7 +251,7 @@ A short `why` shim is also installed so you can type `why src/x.py:42` directly.
 Add `--json` to `why` or `check` for machine-readable output (great for
 editor integrations).
 
-## Exposing decisions to other agents (MCP)
+## Cross-agent integration via MCP
 
 ```bash
 # Run in your repo. Point any MCP-aware client (Claude Desktop, Cursor,
@@ -260,9 +260,15 @@ rationale mcp
 ```
 
 The server speaks a JSON-RPC 2.0 subset of the Model Context Protocol
-over stdio and exposes four tools: `rationale_why`, `rationale_list`,
-`rationale_check`, `rationale_summary`. An agent can ask "why is this
-retry set to 3?" without re-ingesting the repo.
+over stdio and exposes five tools:
+
+| Tool | What it does |
+|---|---|
+| `rationale_record` | **Primary capture path.** Agent calls this the moment it makes a non-trivial choice, passing the alternatives + its own reasoning. Writes directly to `.rationale/`. No distillation LLM, no API key. |
+| `rationale_why` | Look up decisions anchored to a file/line or matching a free-text term. |
+| `rationale_list` | Every captured decision, newest first. |
+| `rationale_check` | Classify each decision FRESH / DRIFTED / STALE / MISSING / UNKNOWN. |
+| `rationale_summary` | Confidence-weighted rollups across files, agents, and tags. |
 
 Install the optional `[mcp]` extra if you want to plug into the full
 MCP Python SDK:
@@ -270,6 +276,22 @@ MCP Python SDK:
 ```bash
 pip install "rationale-cli[mcp]"
 ```
+
+### Why runtime capture is the default in v0.4
+
+Before v0.4, rationale reconstructed decisions *after* a session via the
+Stop hook + an LLM distiller. That worked, but had three problems: it
+needed an API key (or had to shell out to `claude -p`), it was bounded
+by what the agent had explicitly "thought out loud" in its transcript,
+and it interpreted that thinking post-hoc rather than recording ground
+truth.
+
+Runtime capture flips this. The agent tells you, at the moment of the
+decision, what it picked, what it rejected, and why — in its own
+words. No interpretation, no extra LLM call, no API key. The Stop hook
+remains as a fallback for sessions where the agent didn't use the
+tool, and uses the local `claude` binary (Claude Max auth) when available
+instead of the Anthropic SDK.
 
 ## EU AI Act provenance export
 

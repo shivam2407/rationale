@@ -49,8 +49,15 @@ def populated_store(tmp_path: Path) -> DecisionStore:
 def test_list_tools_includes_core_actions() -> None:
     names = {t["name"] for t in list_tools()}
     # Every tool the CLI exposes is also an MCP tool so agents can query
-    # the decision log the same way humans do.
-    assert {"rationale_why", "rationale_list", "rationale_check", "rationale_summary"}.issubset(names)
+    # the decision log the same way humans do. rationale_record is the
+    # runtime capture tool — the primary path in v0.4.
+    assert {
+        "rationale_why",
+        "rationale_list",
+        "rationale_check",
+        "rationale_summary",
+        "rationale_record",
+    }.issubset(names)
 
 
 def test_every_tool_has_schema() -> None:
@@ -106,6 +113,152 @@ def test_dispatch_summary_returns_rollups(populated_store: DecisionStore) -> Non
     assert "total" in result
     assert result["total"] >= 1
     assert "by_file" in result
+
+
+def test_dispatch_record_writes_decision(tmp_path: Path) -> None:
+    """Runtime capture: the tool writes a full Decision to .rationale/ with
+    the reasoning the agent provided — no distillation LLM involved."""
+    store = DecisionStore(tmp_path)
+    store.init()
+
+    src = tmp_path / "pay.py"
+    src.write_text("def charge():\n    return 3\n", encoding="utf-8")
+
+    result = dispatch_tool(
+        "rationale_record",
+        {
+            "chosen": "fixed 3x retry",
+            "alternatives": ["exponential backoff", "circuit breaker"],
+            "reasoning": (
+                "Downstream rate limits already cap traffic; exponential "
+                "backoff stretches p95 past SLO."
+            ),
+            "files": ["pay.py"],
+            "confidence": "medium",
+            "tags": ["reliability"],
+        },
+        repo_root=tmp_path,
+    )
+    assert result["status"] == "recorded"
+    assert result["id"].startswith("d-")
+
+    # Round-trip: the decision must load back with the agent's actual
+    # reasoning text — not "No reasoning trace captured".
+    stored = store.all()
+    assert len(stored) == 1
+    d = stored[0]
+    assert d.chosen == "fixed 3x retry"
+    assert "rate limits" in d.reasoning
+    assert "exponential backoff" in d.alternatives
+    assert d.confidence == "medium"
+    assert "reliability" in d.tags
+
+
+def test_dispatch_record_accepts_session_id(tmp_path: Path) -> None:
+    store = DecisionStore(tmp_path)
+    store.init()
+    dispatch_tool(
+        "rationale_record",
+        {
+            "chosen": "x",
+            "reasoning": "because",
+            "files": ["mod.py"],
+            "session_id": "sess-42",
+        },
+        repo_root=tmp_path,
+    )
+    [d] = store.all()
+    assert d.session_id == "sess-42"
+
+
+def test_dispatch_record_rejects_missing_chosen(tmp_path: Path) -> None:
+    with pytest.raises(MCPToolError):
+        dispatch_tool(
+            "rationale_record",
+            {"reasoning": "r", "files": ["x.py"]},
+            repo_root=tmp_path,
+        )
+
+
+def test_dispatch_record_rejects_missing_reasoning(tmp_path: Path) -> None:
+    with pytest.raises(MCPToolError):
+        dispatch_tool(
+            "rationale_record",
+            {"chosen": "x", "files": ["x.py"]},
+            repo_root=tmp_path,
+        )
+
+
+def test_dispatch_record_rejects_missing_files(tmp_path: Path) -> None:
+    with pytest.raises(MCPToolError):
+        dispatch_tool(
+            "rationale_record",
+            {"chosen": "x", "reasoning": "r", "files": []},
+            repo_root=tmp_path,
+        )
+
+
+def test_dispatch_record_normalizes_invalid_confidence(tmp_path: Path) -> None:
+    """An agent that passes a bogus confidence string should still get a
+    saved decision (falling back to medium) rather than a hard error."""
+    store = DecisionStore(tmp_path)
+    store.init()
+    dispatch_tool(
+        "rationale_record",
+        {
+            "chosen": "x",
+            "reasoning": "r",
+            "files": ["x.py"],
+            "confidence": "extremely-high",
+        },
+        repo_root=tmp_path,
+    )
+    [d] = store.all()
+    assert d.confidence == "medium"
+
+
+def test_dispatch_record_drops_non_string_alternatives(tmp_path: Path) -> None:
+    store = DecisionStore(tmp_path)
+    store.init()
+    dispatch_tool(
+        "rationale_record",
+        {
+            "chosen": "x",
+            "reasoning": "r",
+            "files": ["x.py"],
+            "alternatives": ["ok", 42, None, "also ok"],
+        },
+        repo_root=tmp_path,
+    )
+    [d] = store.all()
+    assert d.alternatives == ["ok", "also ok"]
+
+
+def test_dispatch_record_attaches_git_sha_when_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record tool attaches the current git SHA so the decision is
+    linked to a specific code state — same semantics as transcript
+    distillation."""
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "--allow-empty", "-m", "init", "-q"],
+        cwd=tmp_path,
+        check=True,
+    )
+    store = DecisionStore(tmp_path)
+    store.init()
+    dispatch_tool(
+        "rationale_record",
+        {"chosen": "x", "reasoning": "r", "files": ["x.py"]},
+        repo_root=tmp_path,
+    )
+    [d] = store.all()
+    assert d.git_sha is not None
+    assert len(d.git_sha) >= 7
 
 
 def test_dispatch_rejects_unknown_tool(populated_store: DecisionStore) -> None:

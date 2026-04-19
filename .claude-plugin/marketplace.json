@@ -12,7 +12,7 @@
       "name": "rationale",
       "source": "./",
       "description": "git blame for AI decisions: capture why agents chose what they chose, anchor it to code, and expose it to future sessions via an MCP server. Includes a staleness detector, decision graph, confidence-weighted rollups, and an EU AI Act JSON-LD export with HMAC / Ed25519 signing.",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "author": {
         "name": "Shivam Rawat",
         "email": "shivarawat24@gmail.com"
